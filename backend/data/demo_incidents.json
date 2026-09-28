@@ -1,0 +1,58 @@
+{
+  "incidents": [
+    {
+      "id": "demo-001",
+      "request": {
+        "title": "Payment API returns 503 errors after deployment",
+        "service": "payment-api",
+        "environment": "production",
+        "severity": "high",
+        "description": "After deploying payment-service v2.3.1, the Payment API began returning 503 Service Unavailable errors. Error rate increased to 87%. Customers are unable to complete payments. The issue started approximately 5 minutes after the deployment completed.",
+        "logs": "ERROR: connection pool exhausted (pool size: 10, wait timeout: 30s)\nERROR: 503 Service Unavailable on POST /v1/payments\nWARN: All available connections in use, request queued\nERROR: Request timeout after 30000ms waiting for connection",
+        "recent_changes": "Deployed payment-service v2.3.1 with updated database connection configuration"
+      },
+      "resolution": {
+        "root_cause": "Database connection pool exhaustion. The v2.3.1 deployment changed the connection pool size from 50 to 10 in the database configuration file. Under normal production load, 10 connections are insufficient, causing requests to queue and eventually timeout.",
+        "fix": "Restored the database connection pool size to 50 by correcting the configuration in payment-service. Rolled back to v2.3.0 immediately to restore service while the fix was prepared and tested.",
+        "outcome": "Service recovered within 8 minutes after the rollback. Error rate returned to 0%. The corrected v2.3.1 was re-deployed after validation with the proper pool size.",
+        "resolution_time_minutes": 35
+      }
+    },
+    {
+      "id": "demo-002",
+      "request": {
+        "title": "Auth service login failures spiking in production",
+        "service": "auth-service",
+        "environment": "production",
+        "severity": "critical",
+        "description": "Users are unable to log in. The auth service is returning 500 errors on POST /auth/login. Affects all users. Downstream services that depend on auth tokens are also failing. Started after the auth-service v4.1.0 deployment.",
+        "logs": "ERROR: Redis connection refused at 127.0.0.1:6379\nERROR: Failed to store session token\nERROR: Internal Server Error on POST /auth/login",
+        "recent_changes": "Deployed auth-service v4.1.0. Updated session management to use Redis."
+      },
+      "resolution": {
+        "root_cause": "The new auth-service v4.1.0 was configured to connect to Redis at 127.0.0.1 (localhost). In the production environment, Redis runs as a separate service at an internal hostname (redis-prod.internal). The misconfigured Redis URL caused all session storage to fail.",
+        "fix": "Updated the REDIS_URL environment variable in the production deployment to point to redis-prod.internal:6379. Restarted the auth-service pods.",
+        "outcome": "Login functionality restored within 5 minutes. All users able to authenticate normally. No data loss.",
+        "resolution_time_minutes": 22
+      }
+    },
+    {
+      "id": "demo-003",
+      "request": {
+        "title": "Order service response times degraded",
+        "service": "order-service",
+        "environment": "production",
+        "severity": "high",
+        "description": "The order service P99 response time increased from 200ms to over 15 seconds. No errors are being returned but customers experience very slow checkouts. Started gradually about 2 hours ago. No recent deployments.",
+        "logs": "WARN: Slow query detected: SELECT * FROM orders WHERE customer_id=? took 12430ms\nWARN: Database query exceeded 10000ms threshold\nINFO: Connection pool healthy (15/50 connections in use)",
+        "recent_changes": "No recent deployments. Marketing team ran a promotional campaign this morning which increased traffic by 3x."
+      },
+      "resolution": {
+        "root_cause": "A missing index on the orders table customer_id column. With the 3x traffic increase from the marketing campaign, full table scans on the orders table became the bottleneck. The table had grown to 8M rows since the last time this query was optimized.",
+        "fix": "Created an index on orders(customer_id). The migration ran online without downtime. Also added a composite index on orders(customer_id, created_at) for the most common query pattern.",
+        "outcome": "Response times returned to normal (180ms P99) within 2 minutes of the index creation completing. No service interruption required.",
+        "resolution_time_minutes": 90
+      }
+    }
+  ]
+}
